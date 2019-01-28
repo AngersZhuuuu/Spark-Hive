@@ -29,18 +29,8 @@ import static org.apache.hadoop.hive.serde.serdeConstants.STRING_TYPE_NAME;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Set;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -128,7 +118,7 @@ import com.google.common.collect.Sets;
  * This class has functions that implement meta data/DDL operations using calls
  * to the metastore.
  * It has a metastore client instance it uses to communicate with the metastore.
- *
+ * <p>
  * It is a thread local variable, and the instances is accessed using static
  * get methods in this class.
  */
@@ -195,14 +185,20 @@ public class Hive {
      * new one is created If the new configuration is different in metadata conf
      * vars then a new one is created.
      *
-     * @param c
-     *          new Hive Configuration
+     * @param c new Hive Configuration
      * @return Hive object for current thread
      * @throws HiveException
-     *
      */
     public static Hive get(HiveConf c) throws HiveException {
         Hive db = hiveDB.get();
+        try {
+            LOG.info("Hive Debug: When get Hive Class in HiveClientImpl");
+            LOG.info("Hive Debug: Thread Name -> " + Thread.currentThread().getName());
+            if (db != null)
+                LOG.info("Hive Debug: Owner -> " + db.owner + " CurrentUser -> " + UserGroupInformation.getCurrentUser());
+        } catch (IOException o) {
+            throw new HiveException(o.getMessage());
+        }
         if (db == null || !db.isCurrentUserOwner() ||
                 (db.metaStoreClient != null && !db.metaStoreClient.isCompatibleWith(c))) {
             return get(c, true);
@@ -214,10 +210,8 @@ public class Hive {
     /**
      * get a connection to metastore. see get(HiveConf) function for comments
      *
-     * @param c
-     *          new conf
-     * @param needsRefresh
-     *          if true then creates a new one
+     * @param c            new conf
+     * @param needsRefresh if true then creates a new one
      * @return The connection to the metastore
      * @throws HiveException
      */
@@ -231,6 +225,13 @@ public class Hive {
             closeCurrent();
             c.set("fs.scheme.class", "dfs");
             Hive newdb = new Hive(c);
+            try {
+                LOG.info("Hive Debug: When create new Hive Class");
+                LOG.info("Hive Debug: Thread Name -> " + Thread.currentThread().getName());
+                LOG.info("Hive Debug: Owner -> " + newdb.owner + " CurrentUser -> " + UserGroupInformation.getCurrentUser());
+            } catch (IOException o) {
+                throw new HiveException(o.getMessage());
+            }
             hiveDB.set(newdb);
             return newdb;
         }
@@ -265,7 +266,6 @@ public class Hive {
      * Hive
      *
      * @param c
-     *
      */
     private Hive(HiveConf c) throws HiveException {
         conf = c;
@@ -294,6 +294,7 @@ public class Hive {
 
     /**
      * Create a database
+     *
      * @param db
      * @param ifNotExist if true, will ignore AlreadyExistsException exception
      * @throws AlreadyExistsException
@@ -314,6 +315,7 @@ public class Hive {
 
     /**
      * Create a Database. Raise an error if a database with the same name already exists.
+     *
      * @param db
      * @throws AlreadyExistsException
      * @throws HiveException
@@ -324,6 +326,7 @@ public class Hive {
 
     /**
      * Drop a database.
+     *
      * @param name
      * @throws NoSuchObjectException
      * @throws HiveException
@@ -335,6 +338,7 @@ public class Hive {
 
     /**
      * Drop a database
+     *
      * @param name
      * @param deleteData
      * @param ignoreUnknownDb if true, will ignore NoSuchObjectException
@@ -348,6 +352,7 @@ public class Hive {
 
     /**
      * Drop a database
+     *
      * @param name
      * @param deleteData
      * @param ignoreUnknownDb if true, will ignore NoSuchObjectException
@@ -371,19 +376,13 @@ public class Hive {
     /**
      * Creates a table metadata and the directory for the table data
      *
-     * @param tableName
-     *          name of the table
-     * @param columns
-     *          list of fields of the table
-     * @param partCols
-     *          partition keys of the table
-     * @param fileInputFormat
-     *          Class of the input format of the table data file
-     * @param fileOutputFormat
-     *          Class of the output format of the table data file
-     * @throws HiveException
-     *           thrown if the args are invalid or if the metadata or the data
-     *           directory couldn't be created
+     * @param tableName        name of the table
+     * @param columns          list of fields of the table
+     * @param partCols         partition keys of the table
+     * @param fileInputFormat  Class of the input format of the table data file
+     * @param fileOutputFormat Class of the output format of the table data file
+     * @throws HiveException thrown if the args are invalid or if the metadata or the data
+     *                       directory couldn't be created
      */
     public void createTable(String tableName, List<String> columns,
                             List<String> partCols, Class<? extends InputFormat> fileInputFormat,
@@ -395,22 +394,15 @@ public class Hive {
     /**
      * Creates a table metadata and the directory for the table data
      *
-     * @param tableName
-     *          name of the table
-     * @param columns
-     *          list of fields of the table
-     * @param partCols
-     *          partition keys of the table
-     * @param fileInputFormat
-     *          Class of the input format of the table data file
-     * @param fileOutputFormat
-     *          Class of the output format of the table data file
-     * @param bucketCount
-     *          number of buckets that each partition (or the table itself) should
-     *          be divided into
-     * @throws HiveException
-     *           thrown if the args are invalid or if the metadata or the data
-     *           directory couldn't be created
+     * @param tableName        name of the table
+     * @param columns          list of fields of the table
+     * @param partCols         partition keys of the table
+     * @param fileInputFormat  Class of the input format of the table data file
+     * @param fileOutputFormat Class of the output format of the table data file
+     * @param bucketCount      number of buckets that each partition (or the table itself) should
+     *                         be divided into
+     * @throws HiveException thrown if the args are invalid or if the metadata or the data
+     *                       directory couldn't be created
      */
     public void createTable(String tableName, List<String> columns,
                             List<String> partCols, Class<? extends InputFormat> fileInputFormat,
@@ -422,15 +414,16 @@ public class Hive {
 
     /**
      * Create a table metadata and the directory for the table data
-     * @param tableName table name
-     * @param columns list of fields of the table
-     * @param partCols partition keys of the table
-     * @param fileInputFormat Class of the input format of the table data file
+     *
+     * @param tableName        table name
+     * @param columns          list of fields of the table
+     * @param partCols         partition keys of the table
+     * @param fileInputFormat  Class of the input format of the table data file
      * @param fileOutputFormat Class of the output format of the table data file
-     * @param bucketCount number of buckets that each partition (or the table itself) should be
-     *                    divided into
-     * @param bucketCols Bucket columns
-     * @param parameters Parameters for the table
+     * @param bucketCount      number of buckets that each partition (or the table itself) should be
+     *                         divided into
+     * @param bucketCols       Bucket columns
+     * @param parameters       Parameters for the table
      * @throws HiveException
      */
     public void createTable(String tableName, List<String> columns, List<String> partCols,
@@ -470,12 +463,9 @@ public class Hive {
     /**
      * Updates the existing table metadata with the new metadata.
      *
-     * @param tblName
-     *          name of the existing table
-     * @param newTbl
-     *          new name of the table. could be the old name
-     * @throws InvalidOperationException
-     *           if the changes in metadata is not acceptable
+     * @param tblName name of the existing table
+     * @param newTbl  new name of the table. could be the old name
+     * @throws InvalidOperationException if the changes in metadata is not acceptable
      * @throws TException
      */
     public void alterTable(String tblName, Table newTbl)
@@ -492,7 +482,23 @@ public class Hive {
                 newTbl.getParameters().remove(hive_metastoreConstants.DDL_TIME);
             }
             newTbl.checkValidity();
+            LOG.info("Hive Debug: When do Alter Table Action");
+            LOG.info("Hive Debug: Thread Name -> " + Thread.currentThread().getName());
+            LOG.info("Hive Debug: Owner -> " + owner + " CurrentUser -> " + UserGroupInformation.getCurrentUser());
+            LOG.info("Hive Debug: DB -> " + names[0]);
+            LOG.info("Hive Debug: tblName -> "+ names[1]);
+            LOG.info("Hive Debug: "+newTbl.getOwner());
+            Properties metadata   = newTbl.getMetadata();
+            Enumeration propNames  = newTbl.getMetadata().propertyNames();
+            LOG.info("Hive Debug: Print table's metadata.....");
+            while (propNames.hasMoreElements()){
+                String prop = propNames.nextElement().toString();
+                LOG.info("Hive Debug: Key -> " + prop + " Value -> "+ metadata.getProperty(prop));
+            }
+
             getMSC().alter_table(names[0], names[1], newTbl.getTTable(), cascade);
+        } catch (IOException e){
+            throw new HiveException("Unable to alter table. " + e.getMessage(), e);
         } catch (MetaException e) {
             throw new HiveException("Unable to alter table. " + e.getMessage(), e);
         } catch (TException e) {
@@ -509,12 +515,9 @@ public class Hive {
     /**
      * Updates the existing index metadata with the new metadata.
      *
-     * @param idxName
-     *          name of the existing index
-     * @param newIdx
-     *          new name of the index. could be the old name
-     * @throws InvalidOperationException
-     *           if the changes in metadata is not acceptable
+     * @param idxName name of the existing index
+     * @param newIdx  new name of the index. could be the old name
+     * @throws InvalidOperationException if the changes in metadata is not acceptable
      * @throws TException
      */
     public void alterIndex(String dbName, String baseTblName, String idxName, Index newIdx)
@@ -531,12 +534,9 @@ public class Hive {
     /**
      * Updates the existing partition metadata with the new metadata.
      *
-     * @param tblName
-     *          name of the existing table
-     * @param newPart
-     *          new partition
-     * @throws InvalidOperationException
-     *           if the changes in metadata is not acceptable
+     * @param tblName name of the existing table
+     * @param newPart new partition
+     * @throws InvalidOperationException if the changes in metadata is not acceptable
      * @throws TException
      */
     public void alterPartition(String tblName, Partition newPart)
@@ -548,14 +548,10 @@ public class Hive {
     /**
      * Updates the existing partition metadata with the new metadata.
      *
-     * @param dbName
-     *          name of the exiting table's database
-     * @param tblName
-     *          name of the existing table
-     * @param newPart
-     *          new partition
-     * @throws InvalidOperationException
-     *           if the changes in metadata is not acceptable
+     * @param dbName  name of the exiting table's database
+     * @param tblName name of the existing table
+     * @param newPart new partition
+     * @throws InvalidOperationException if the changes in metadata is not acceptable
      * @throws TException
      */
     public void alterPartition(String dbName, String tblName, Partition newPart)
@@ -578,12 +574,9 @@ public class Hive {
     /**
      * Updates the existing table metadata with the new metadata.
      *
-     * @param tblName
-     *          name of the existing table
-     * @param newParts
-     *          new partitions
-     * @throws InvalidOperationException
-     *           if the changes in metadata is not acceptable
+     * @param tblName  name of the existing table
+     * @param newParts new partitions
+     * @throws InvalidOperationException if the changes in metadata is not acceptable
      * @throws TException
      */
     public void alterPartitions(String tblName, List<Partition> newParts)
@@ -610,14 +603,10 @@ public class Hive {
     /**
      * Rename a old partition to new partition
      *
-     * @param tbl
-     *          existing table
-     * @param oldPartSpec
-     *          spec of old partition
-     * @param newPart
-     *          new partition
-     * @throws InvalidOperationException
-     *           if the changes in metadata is not acceptable
+     * @param tbl         existing table
+     * @param oldPartSpec spec of old partition
+     * @param newPart     new partition
+     * @throws InvalidOperationException if the changes in metadata is not acceptable
      * @throws TException
      */
     public void renamePartition(Table tbl, Map<String, String> oldPartSpec, Partition newPart)
@@ -670,8 +659,7 @@ public class Hive {
     /**
      * Creates the table with the give objects
      *
-     * @param tbl
-     *          a table object
+     * @param tbl a table object
      * @throws HiveException
      */
     public void createTable(Table tbl) throws HiveException {
@@ -681,10 +669,8 @@ public class Hive {
     /**
      * Creates the table with the give objects
      *
-     * @param tbl
-     *          a table object
-     * @param ifNotExists
-     *          if true, ignore AlreadyExistsException
+     * @param tbl         a table object
+     * @param ifNotExists if true, ignore AlreadyExistsException
      * @throws HiveException
      */
     public void createTable(Table tbl, boolean ifNotExists) throws HiveException {
@@ -723,32 +709,19 @@ public class Hive {
     }
 
     /**
-     *
-     * @param tableName
-     *          table name
-     * @param indexName
-     *          index name
-     * @param indexHandlerClass
-     *          index handler class
-     * @param indexedCols
-     *          index columns
-     * @param indexTblName
-     *          index table's name
-     * @param deferredRebuild
-     *          referred build index table's data
-     * @param inputFormat
-     *          input format
-     * @param outputFormat
-     *          output format
+     * @param tableName         table name
+     * @param indexName         index name
+     * @param indexHandlerClass index handler class
+     * @param indexedCols       index columns
+     * @param indexTblName      index table's name
+     * @param deferredRebuild   referred build index table's data
+     * @param inputFormat       input format
+     * @param outputFormat      output format
      * @param serde
-     * @param storageHandler
-     *          index table's storage handler
-     * @param location
-     *          location
-     * @param idxProps
-     *          idx
-     * @param serdeProps
-     *          serde properties
+     * @param storageHandler    index table's storage handler
+     * @param location          location
+     * @param idxProps          idx
+     * @param serdeProps        serde properties
      * @param collItemDelim
      * @param fieldDelim
      * @param fieldEscape
@@ -960,12 +933,9 @@ public class Hive {
      * is a no-op. If ifPurge option is specified it is passed to the
      * hdfs command that removes table data from warehouse to make it skip trash.
      *
-     * @param tableName
-     *          table to drop
-     * @param ifPurge
-     *          completely purge the table (skipping trash) while removing data from warehouse
-     * @throws HiveException
-     *           thrown if the drop fails
+     * @param tableName table to drop
+     * @param ifPurge   completely purge the table (skipping trash) while removing data from warehouse
+     * @throws HiveException thrown if the drop fails
      */
     public void dropTable(String tableName, boolean ifPurge) throws HiveException {
         String[] names = Utilities.getDbTableName(tableName);
@@ -976,10 +946,8 @@ public class Hive {
      * Drops table along with the data in it. If the table doesn't exist then it
      * is a no-op
      *
-     * @param tableName
-     *          table to drop
-     * @throws HiveException
-     *           thrown if the drop fails
+     * @param tableName table to drop
+     * @throws HiveException thrown if the drop fails
      */
     public void dropTable(String tableName) throws HiveException {
         dropTable(tableName, false);
@@ -989,12 +957,9 @@ public class Hive {
      * Drops table along with the data in it. If the table doesn't exist then it
      * is a no-op
      *
-     * @param dbName
-     *          database where the table lives
-     * @param tableName
-     *          table to drop
-     * @throws HiveException
-     *           thrown if the drop fails
+     * @param dbName    database where the table lives
+     * @param tableName table to drop
+     * @throws HiveException thrown if the drop fails
      */
     public void dropTable(String dbName, String tableName) throws HiveException {
         dropTable(dbName, tableName, true, true, false);
@@ -1005,10 +970,8 @@ public class Hive {
      *
      * @param dbName
      * @param tableName
-     * @param deleteData
-     *          deletes the underlying data along with metadata
-     * @param ignoreUnknownTab
-     *          an exception is thrown if this is false and the table doesn't exist
+     * @param deleteData       deletes the underlying data along with metadata
+     * @param ignoreUnknownTab an exception is thrown if this is false and the table doesn't exist
      * @throws HiveException
      */
     public void dropTable(String dbName, String tableName, boolean deleteData,
@@ -1021,12 +984,9 @@ public class Hive {
      *
      * @param dbName
      * @param tableName
-     * @param deleteData
-     *          deletes the underlying data along with metadata
-     * @param ignoreUnknownTab
-     *          an exception is thrown if this is false and the table doesn't exist
-     * @param ifPurge
-     *          completely purge the table skipping trash while removing data from warehouse
+     * @param deleteData       deletes the underlying data along with metadata
+     * @param ignoreUnknownTab an exception is thrown if this is false and the table doesn't exist
+     * @param ifPurge          completely purge the table skipping trash while removing data from warehouse
      * @throws HiveException
      */
     public void dropTable(String dbName, String tableName, boolean deleteData,
@@ -1048,10 +1008,11 @@ public class Hive {
 
     /**
      * Returns metadata for the table named tableName
+     *
      * @param tableName the name of the table
      * @return the table metadata
      * @throws HiveException if there's an internal error or if the
-     * table doesn't exist
+     *                       table doesn't exist
      */
     public Table getTable(final String tableName) throws HiveException {
         return this.getTable(tableName, true);
@@ -1059,11 +1020,12 @@ public class Hive {
 
     /**
      * Returns metadata for the table named tableName
-     * @param tableName the name of the table
+     *
+     * @param tableName      the name of the table
      * @param throwException controls whether an exception is thrown or a returns a null
      * @return the table metadata
      * @throws HiveException if there's an internal error or if the
-     * table doesn't exist
+     *                       table doesn't exist
      */
     public Table getTable(final String tableName, boolean throwException) throws HiveException {
         String[] names = Utilities.getDbTableName(tableName);
@@ -1073,13 +1035,10 @@ public class Hive {
     /**
      * Returns metadata of the table
      *
-     * @param dbName
-     *          the name of the database
-     * @param tableName
-     *          the name of the table
+     * @param dbName    the name of the database
+     * @param tableName the name of the table
      * @return the table
-     * @exception HiveException
-     *              if there's an internal error or if the table doesn't exist
+     * @throws HiveException if there's an internal error or if the table doesn't exist
      */
     public Table getTable(final String dbName, final String tableName) throws HiveException {
         if (tableName.contains(".")) {
@@ -1093,12 +1052,9 @@ public class Hive {
     /**
      * Returns metadata of the table
      *
-     * @param dbName
-     *          the name of the database
-     * @param tableName
-     *          the name of the table
-     * @param throwException
-     *          controls whether an exception is thrown or a returns a null
+     * @param dbName         the name of the database
+     * @param tableName      the name of the table
+     * @param throwException controls whether an exception is thrown or a returns a null
      * @return the table or if throwException is false a null value.
      * @throws HiveException
      */
@@ -1156,6 +1112,7 @@ public class Hive {
 
     /**
      * Get all table names for the current database.
+     *
      * @return List of table names
      * @throws HiveException
      */
@@ -1165,6 +1122,7 @@ public class Hive {
 
     /**
      * Get all table names for the specified database.
+     *
      * @param dbName
      * @return List of table names
      * @throws HiveException
@@ -1177,8 +1135,7 @@ public class Hive {
      * Returns all existing tables from default database which match the given
      * pattern. The matching occurs as per Java regular expressions
      *
-     * @param tablePattern
-     *          java re pattern
+     * @param tablePattern java re pattern
      * @return list of table names
      * @throws HiveException
      */
@@ -1190,6 +1147,7 @@ public class Hive {
     /**
      * Returns all existing tables from the specified database which match the given
      * pattern. The matching occurs as per Java regular expressions.
+     *
      * @param dbName
      * @param tablePattern
      * @return list of table names
@@ -1207,10 +1165,8 @@ public class Hive {
      * Returns all existing tables from the given database which match the given
      * pattern. The matching occurs as per Java regular expressions
      *
-     * @param database
-     *          the database name
-     * @param tablePattern
-     *          java re pattern
+     * @param database     the database name
+     * @param tablePattern java re pattern
      * @return list of table names
      * @throws HiveException
      */
@@ -1241,8 +1197,7 @@ public class Hive {
      * Get all existing databases that match the given
      * pattern. The matching occurs as per Java regular expressions
      *
-     * @param databasePattern
-     *          java re pattern
+     * @param databasePattern java re pattern
      * @return list of database names
      * @throws HiveException
      */
@@ -1264,8 +1219,7 @@ public class Hive {
     }
 
     /**
-     * @param privileges
-     *          a bag of privileges
+     * @param privileges a bag of privileges
      * @return true on success
      * @throws HiveException
      */
@@ -1283,7 +1237,7 @@ public class Hive {
      *
      * @param dbName
      * @return true if a database with the given name already exists, false if
-     *         does not exist.
+     * does not exist.
      * @throws HiveException
      */
     public boolean databaseExists(String dbName) throws HiveException {
@@ -1292,6 +1246,7 @@ public class Hive {
 
     /**
      * Get the database by name.
+     *
      * @param dbName the name of the database.
      * @return a Database object if this database exists, null otherwise.
      * @throws HiveException
@@ -1308,6 +1263,7 @@ public class Hive {
 
     /**
      * Get the Database object for current database
+     *
      * @return a Database object if this database exists, null otherwise.
      * @throws HiveException
      */
@@ -1331,21 +1287,16 @@ public class Hive {
      * exist - one is created - files in loadPath are moved into Hive. But the
      * directory itself is not removed.
      *
-     * @param loadPath
-     *          Directory containing files to load into Table
-     * @param  tbl
-     *          name of table to be loaded.
-     * @param partSpec
-     *          defines which partition needs to be loaded
-     * @param replace
-     *          if true - replace files in the partition, otherwise add files to
-     *          the partition
-     * @param holdDDLTime if true, force [re]create the partition
+     * @param loadPath          Directory containing files to load into Table
+     * @param tbl               name of table to be loaded.
+     * @param partSpec          defines which partition needs to be loaded
+     * @param replace           if true - replace files in the partition, otherwise add files to
+     *                          the partition
+     * @param holdDDLTime       if true, force [re]create the partition
      * @param inheritTableSpecs if true, on [re]creating the partition, take the
-     *          location/inputformat/outputformat/serde details from table spec
-     * @param isSrcLocal
-     *          If the source directory is LOCAL
-     * @param isAcid true if this is an ACID operation
+     *                          location/inputformat/outputformat/serde details from table spec
+     * @param isSrcLocal        If the source directory is LOCAL
+     * @param isAcid            true if this is an ACID operation
      */
     public Partition loadPartition(Path loadPath, Table tbl,
                                    Map<String, String> partSpec, boolean replace, boolean holdDDLTime,
@@ -1467,6 +1418,7 @@ public class Hive {
 
     /**
      * Construct a list bucketing location map
+     *
      * @param fSta
      * @param skewedColValueLocationMaps
      * @param newPartPath
@@ -1523,15 +1475,16 @@ public class Hive {
      * Given a source directory name of the load path, load all dynamically generated partitions
      * into the specified table and return a list of strings that represent the dynamic partition
      * paths.
+     *
      * @param loadPath
      * @param tableName
      * @param partSpec
      * @param replace
-     * @param numDP number of dynamic partitions
+     * @param numDP                number of dynamic partitions
      * @param holdDDLTime
      * @param listBucketingEnabled
-     * @param isAcid true if this is an ACID operation
-     * @param txnId txnId, can be 0 unless isAcid == true
+     * @param isAcid               true if this is an ACID operation
+     * @param txnId                txnId, can be 0 unless isAcid == true
      * @return partition map details (PartitionSpec and Partition)
      * @throws HiveException
      */
@@ -1616,18 +1569,13 @@ public class Hive {
      * thrown - files in loadPath are moved into Hive. But the directory itself is
      * not removed.
      *
-     * @param loadPath
-     *          Directory containing files to load into Table
-     * @param tableName
-     *          name of table to be loaded.
-     * @param replace
-     *          if true - replace files in the table, otherwise add files to table
+     * @param loadPath              Directory containing files to load into Table
+     * @param tableName             name of table to be loaded.
+     * @param replace               if true - replace files in the table, otherwise add files to table
      * @param holdDDLTime
-     * @param isSrcLocal
-     *          If the source directory is LOCAL
-     * @param isSkewedStoreAsSubdir
-     *          if list bucketing enabled
-     * @param isAcid true if this is an ACID based write
+     * @param isSrcLocal            If the source directory is LOCAL
+     * @param isSkewedStoreAsSubdir if list bucketing enabled
+     * @param isAcid                true if this is an ACID based write
      */
     public void loadTable(Path loadPath, String tableName, boolean replace,
                           boolean holdDDLTime, boolean isSrcLocal, boolean isSkewedStoreAsSubdir, boolean isAcid)
@@ -1676,13 +1624,10 @@ public class Hive {
     /**
      * Creates a partition.
      *
-     * @param tbl
-     *          table for which partition needs to be created
-     * @param partSpec
-     *          partition keys and their values
+     * @param tbl      table for which partition needs to be created
+     * @param partSpec partition keys and their values
      * @return created partition object
-     * @throws HiveException
-     *           if table doesn't exist or partition already exists
+     * @throws HiveException if table doesn't exist or partition already exists
      */
     public Partition createPartition(Table tbl, Map<String, String> partSpec) throws HiveException {
         try {
@@ -1776,14 +1721,11 @@ public class Hive {
     /**
      * Returns partition metadata
      *
-     * @param tbl
-     *          the partition's table
-     * @param partSpec
-     *          partition keys and values
-     * @param forceCreate
-     *          if this is true and partition doesn't exist then a partition is
-     *          created
-     * @param partPath the path where the partition data is located
+     * @param tbl               the partition's table
+     * @param partSpec          partition keys and values
+     * @param forceCreate       if this is true and partition doesn't exist then a partition is
+     *                          created
+     * @param partPath          the path where the partition data is located
      * @param inheritTableSpecs whether to copy over the table specs for if/of/serde
      * @return result partition object or null if there is no partition
      * @throws HiveException
@@ -1797,17 +1739,14 @@ public class Hive {
     /**
      * Returns partition metadata
      *
-     * @param tbl
-     *          the partition's table
-     * @param partSpec
-     *          partition keys and values
-     * @param forceCreate
-     *          if this is true and partition doesn't exist then a partition is
-     *          created
-     * @param partPath the path where the partition data is located
+     * @param tbl               the partition's table
+     * @param partSpec          partition keys and values
+     * @param forceCreate       if this is true and partition doesn't exist then a partition is
+     *                          created
+     * @param partPath          the path where the partition data is located
      * @param inheritTableSpecs whether to copy over the table specs for if/of/serde
-     * @param newFiles An optional list of new files that were moved into this partition.  If
-     *                 non-null these will be included in the DML event sent to the metastore.
+     * @param newFiles          An optional list of new files that were moved into this partition.  If
+     *                          non-null these will be included in the DML event sent to the metastore.
      * @return result partition object or null if there is no partition
      * @throws HiveException
      */
@@ -2052,8 +1991,7 @@ public class Hive {
     /**
      * get all the partitions that the table has
      *
-     * @param tbl
-     *          object for which partition is needed
+     * @param tbl object for which partition is needed
      * @return list of partition objects
      * @throws HiveException
      */
@@ -2082,6 +2020,7 @@ public class Hive {
 
     /**
      * Get all the partitions; unlike {@link #getPartitions(Table)}, does not include auth.
+     *
      * @param tbl table for which partitions are needed
      * @return list of partition objects
      */
@@ -2109,8 +2048,7 @@ public class Hive {
      * specification. partition columns whose value is can be anything should be
      * an empty string.
      *
-     * @param tbl
-     *          object for which partition is needed. Must be partitioned.
+     * @param tbl   object for which partition is needed. Must be partitioned.
      * @param limit number of partitions to return
      * @return list of partition objects
      * @throws HiveException
@@ -2145,8 +2083,7 @@ public class Hive {
      * specification. partition columns whose value is can be anything should be
      * an empty string.
      *
-     * @param tbl
-     *          object for which partition is needed. Must be partitioned.
+     * @param tbl object for which partition is needed. Must be partitioned.
      * @return list of partition objects
      * @throws HiveException
      */
@@ -2160,10 +2097,8 @@ public class Hive {
      * specification. partition columns whose value is can be anything should be
      * an empty string.
      *
-     * @param tbl
-     *          object for which partition is needed. Must be partitioned.
-     * @param partialPartSpec
-     *          partial partition specification (some subpartitions can be empty).
+     * @param tbl             object for which partition is needed. Must be partitioned.
+     * @param partialPartSpec partial partition specification (some subpartitions can be empty).
      * @return list of partition objects
      * @throws HiveException
      */
@@ -2185,10 +2120,8 @@ public class Hive {
     /**
      * Get all partitions of the table that matches the list of given partition names.
      *
-     * @param tbl
-     *          object for which partition is needed. Must be partitioned.
-     * @param partNames
-     *          list of partition names
+     * @param tbl       object for which partition is needed. Must be partitioned.
+     * @param partNames list of partition names
      * @return list of partition objects
      * @throws HiveException
      */
@@ -2235,7 +2168,8 @@ public class Hive {
 
     /**
      * Get a list of Partitions by filter.
-     * @param tbl The table containing the partitions.
+     *
+     * @param tbl    The table containing the partitions.
      * @param filter A string represent partition predicates.
      * @return a list of partitions satisfying the partition predicates.
      * @throws HiveException
@@ -2272,9 +2206,10 @@ public class Hive {
 
     /**
      * Get a list of Partitions by expr.
-     * @param tbl The table containing the partitions.
-     * @param expr A serialized expression for partition predicates.
-     * @param conf Hive config.
+     *
+     * @param tbl    The table containing the partitions.
+     * @param expr   A serialized expression for partition predicates.
+     * @param conf   Hive config.
      * @param result the resulting list of partitions
      * @return whether the resulting list contains partitions which may or may not match the expr
      */
@@ -2372,20 +2307,13 @@ public class Hive {
     }
 
     /**
-     * @param objectType
-     *          hive object type
-     * @param db_name
-     *          database name
-     * @param table_name
-     *          table name
-     * @param part_values
-     *          partition values
-     * @param column_name
-     *          column name
-     * @param user_name
-     *          user name
-     * @param group_names
-     *          group names
+     * @param objectType  hive object type
+     * @param db_name     database name
+     * @param table_name  table name
+     * @param part_values partition values
+     * @param column_name column name
+     * @param user_name   user name
+     * @param group_names group names
      * @return the privilege set
      * @throws HiveException
      */
@@ -2403,8 +2331,7 @@ public class Hive {
     }
 
     /**
-     * @param objectType
-     *          hive object type
+     * @param objectType    hive object type
      * @param principalName
      * @param principalType
      * @param dbName
@@ -2655,14 +2582,15 @@ public class Hive {
     /**
      * Copy files.  This handles building the mapping for buckets and such between the source and
      * destination
-     * @param conf Configuration object
-     * @param srcf source directory, if bucketed should contain bucket files
-     * @param destf directory to move files into
-     * @param fs Filesystem
+     *
+     * @param conf       Configuration object
+     * @param srcf       source directory, if bucketed should contain bucket files
+     * @param destf      directory to move files into
+     * @param fs         Filesystem
      * @param isSrcLocal true if source is on local file system
-     * @param isAcid true if this is an ACID based write
-     * @param newFiles if this is non-null, a list of files that were created as a result of this
-     *                 move will be returned.
+     * @param isAcid     true if this is an ACID based write
+     * @param newFiles   if this is non-null, a list of files that were created as a result of this
+     *                   move will be returned.
      * @throws HiveException
      */
     static protected void copyFiles(HiveConf conf, Path srcf, Path destf,
@@ -2801,18 +2729,14 @@ public class Hive {
      * srcf, destf, and tmppath should resident in the same DFS, but the oldPath can be in a
      * different DFS.
      *
-     * @param tablePath path of the table.  Used to identify permission inheritance.
-     * @param srcf
-     *          Source directory to be renamed to tmppath. It should be a
-     *          leaf directory where the final data files reside. However it
-     *          could potentially contain subdirectories as well.
-     * @param destf
-     *          The directory where the final data needs to go
-     * @param oldPath
-     *          The directory where the old data location, need to be cleaned up.  Most of time, will be the same
-     *          as destf, unless its across FileSystem boundaries.
-     * @param isSrcLocal
-     *          If the source directory is LOCAL
+     * @param tablePath  path of the table.  Used to identify permission inheritance.
+     * @param srcf       Source directory to be renamed to tmppath. It should be a
+     *                   leaf directory where the final data files reside. However it
+     *                   could potentially contain subdirectories as well.
+     * @param destf      The directory where the final data needs to go
+     * @param oldPath    The directory where the old data location, need to be cleaned up.  Most of time, will be the same
+     *                   as destf, unless its across FileSystem boundaries.
+     * @param isSrcLocal If the source directory is LOCAL
      */
     protected static void replaceFiles(Path tablePath, Path srcf, Path destf, Path oldPath, HiveConf conf,
                                        boolean isSrcLocal) throws HiveException {
@@ -2920,8 +2844,9 @@ public class Hive {
 
     /**
      * This method sets all paths from tablePath to destf (including destf) to have same permission as tablePath.
+     *
      * @param tablePath path of table
-     * @param destf path of table-subdir.
+     * @param destf     path of table-subdir.
      * @param conf
      * @param fs
      */
@@ -2970,9 +2895,8 @@ public class Hive {
      * Creates a metastore client. Currently it creates only JDBC based client as
      * File based store support is removed
      *
+     * @throws HiveMetaException if a working client can't be created
      * @returns a Meta Store Client
-     * @throws HiveMetaException
-     *           if a working client can't be created
      */
     private IMetaStoreClient createMetaStoreClient() throws MetaException {
 
@@ -3020,6 +2944,13 @@ public class Hive {
                 throw new MetaException(msg + "\n" + StringUtils.stringifyException(e));
             }
             metaStoreClient = createMetaStoreClient();
+            try {
+                LOG.info("Hive Debug: When create new MetaStoreClient");
+                LOG.info("Hive Debug: Thread Name -> " + Thread.currentThread().getName());
+                LOG.info("Hive Debug: Owner -> " + owner + " CurrentUser -> " + UserGroupInformation.getCurrentUser());
+            } catch (IOException o) {
+                throw new MetaException(o.getMessage());
+            }
         }
         return metaStoreClient;
     }
@@ -3164,10 +3095,11 @@ public class Hive {
 
     /**
      * Enqueue a compaction request.
-     * @param dbname name of the database, if null default will be used.
-     * @param tableName name of the table, cannot be null
-     * @param partName name of the partition, if null table will be compacted (valid only for
-     *                 non-partitioned tables).
+     *
+     * @param dbname      name of the database, if null default will be used.
+     * @param tableName   name of the table, cannot be null
+     * @param partName    name of the partition, if null table will be compacted (valid only for
+     *                    non-partitioned tables).
      * @param compactType major or minor
      * @throws HiveException
      */
