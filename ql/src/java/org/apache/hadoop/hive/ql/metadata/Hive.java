@@ -2952,7 +2952,14 @@ public class Hive {
                 throw new MetaException(o.getMessage());
             }
         }
-        return metaStoreClient;
+            try {
+                LOG.info("Hive Debug: When getMSC");
+                LOG.info("Hive Debug: Thread Name -> " + Thread.currentThread().getName());
+                LOG.info("Hive Debug: Owner -> " + owner + " CurrentUser -> " + UserGroupInformation.getCurrentUser());
+            } catch (IOException o) {
+                throw new MetaException(o.getMessage());
+            }
+            return metaStoreClient;
     }
 
     private String getUserName() {
