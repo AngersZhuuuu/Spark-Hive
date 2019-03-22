@@ -3240,7 +3240,12 @@ public class Hive {
     public String getDelegationToken(String owner, String renewer)
             throws HiveException {
         try {
-            return getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).getDelegationToken(owner, renewer);
+           String tokens = "";
+           for(Entry<String ,IMetaStoreClient> entry : clusterToMetaStoreClient.entrySet()){
+               tokens =  tokens + "#"+ entry.getKey() + "$" + (entry.getValue().getDelegationToken(owner, renewer));
+           }
+           return tokens.replaceFirst("#","");
+//            return getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).getDelegationToken(owner, renewer);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3250,7 +3255,11 @@ public class Hive {
     public void cancelDelegationToken(String tokenStrForm)
             throws HiveException {
         try {
-            getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).cancelDelegationToken(tokenStrForm);
+            for(String token : tokenStrForm.split("#")){
+                String[] kv = token.split("\\$");
+                getMSC(kv[0]).cancelDelegationToken(kv[1]);
+            }
+//            getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).cancelDelegationToken(tokenStrForm);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
