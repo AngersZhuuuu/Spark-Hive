@@ -66,39 +66,7 @@ import org.apache.hadoop.hive.metastore.PartitionDropOptions;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.Warehouse;
-import org.apache.hadoop.hive.metastore.api.AggrStats;
-import org.apache.hadoop.hive.metastore.api.AlreadyExistsException;
-import org.apache.hadoop.hive.metastore.api.ColumnStatistics;
-import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
-import org.apache.hadoop.hive.metastore.api.CompactionType;
-import org.apache.hadoop.hive.metastore.api.Database;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.hive.metastore.api.FireEventRequest;
-import org.apache.hadoop.hive.metastore.api.FireEventRequestData;
-import org.apache.hadoop.hive.metastore.api.Function;
-import org.apache.hadoop.hive.metastore.api.GetOpenTxnsInfoResponse;
-import org.apache.hadoop.hive.metastore.api.GetRoleGrantsForPrincipalRequest;
-import org.apache.hadoop.hive.metastore.api.GetRoleGrantsForPrincipalResponse;
-import org.apache.hadoop.hive.metastore.api.HiveObjectPrivilege;
-import org.apache.hadoop.hive.metastore.api.HiveObjectRef;
-import org.apache.hadoop.hive.metastore.api.HiveObjectType;
-import org.apache.hadoop.hive.metastore.api.Index;
-import org.apache.hadoop.hive.metastore.api.InsertEventRequestData;
-import org.apache.hadoop.hive.metastore.api.InvalidOperationException;
-import org.apache.hadoop.hive.metastore.api.MetaException;
-import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
-import org.apache.hadoop.hive.metastore.api.Order;
-import org.apache.hadoop.hive.metastore.api.PrincipalPrivilegeSet;
-import org.apache.hadoop.hive.metastore.api.PrincipalType;
-import org.apache.hadoop.hive.metastore.api.PrivilegeBag;
-import org.apache.hadoop.hive.metastore.api.Role;
-import org.apache.hadoop.hive.metastore.api.RolePrincipalGrant;
-import org.apache.hadoop.hive.metastore.api.SerDeInfo;
-import org.apache.hadoop.hive.metastore.api.SetPartitionsStatsRequest;
-import org.apache.hadoop.hive.metastore.api.ShowCompactResponse;
-import org.apache.hadoop.hive.metastore.api.SkewedInfo;
-import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
-import org.apache.hadoop.hive.metastore.api.hive_metastoreConstants;
+import org.apache.hadoop.hive.metastore.api.*;
 import org.apache.hadoop.hive.ql.ErrorMsg;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.exec.FunctionTask;
@@ -141,7 +109,6 @@ public class Hive {
     static final private Log LOG = LogFactory.getLog("hive.ql.metadata.Hive");
 
     private HiveConf conf = null;
-    private IMetaStoreClient metaStoreClient;
     private UserGroupInformation owner;
     private ConcurrentHashMap<String, String> clusterToMetaStoreUri = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String, HiveConf> clusterToMetaStoreConf = new ConcurrentHashMap<>();
@@ -173,23 +140,6 @@ public class Hive {
         }
     }
 
-    public static String getClusterFromDbName(String dbName) {
-        return dbName.split("_")[0];
-    }
-
-    public static String getDBFromDbName(String dbName) {
-        return dbName.replaceFirst("_", "#").split("#")[1];
-    }
-
-    //TODO
-    public static String getClusterFromPattern(String pattern) {
-        return pattern;
-    }
-
-    //TODO
-    public static String getDBFromPattern(String pattern) {
-        return pattern;
-    }
 
     public static void reloadFunctions() throws HiveException {
         Hive db = Hive.get();
@@ -324,11 +274,26 @@ public class Hive {
      */
     private void close() {
         LOG.debug("Closing current thread's connection to Hive Metastore.");
-        if (metaStoreClient != null) {
-            metaStoreClient.close();
-            metaStoreClient = null;
+        if (!clusterToMetaStoreClient.isEmpty()) {
+            for(Entry<String ,IMetaStoreClient> entry : clusterToMetaStoreClient.entrySet()){
+                entry.getValue().close();
+                clusterToMetaStoreClient.remove(entry.getKey());
+            }
         }
     }
+
+    public String getClusterFromDbName(String dbName) {
+        String cluster = dbName.split("_")[0];
+        if(clusterToMetaStoreUri.containsKey(cluster))
+            return dbName.split("_")[0];
+        else
+            return "null";
+    }
+
+    public  String getDBFromDbName(String dbName) {
+        return dbName.replaceFirst("_", "#").split("#")[1];
+    }
+
 
     /**
      * Create a database
@@ -693,8 +658,10 @@ public class Hive {
             }
             String cluster = getClusterFromDbName(tbl.getDbName());
             String db = getDBFromDbName(tbl.getDbName());
+            org.apache.hadoop.hive.metastore.api.Partition tPartition = newPart.getTPartition();
+            tPartition.setDbName(db);
             getMSC(cluster).renamePartition(db, tbl.getTableName(), pvals,
-                    newPart.getTPartition());
+                    tPartition);
 
         } catch (InvalidOperationException e) {
             throw new HiveException("Unable to rename partition. " + e.getMessage(), e);
@@ -1640,7 +1607,7 @@ public class Hive {
                     LOG.info("NOT moving empty directory: " + s.getPath());
                 } else {
                     try {
-                        validatePartitionNameCharacters(
+                        validatePartitionNameCharacters(getClusterFromDbName(Utilities.getDatabaseName(tableName)),
                                 Warehouse.getPartValuesFromPartName(s.getPath().getParent().toString()));
                     } catch (MetaException e) {
                         throw new HiveException(e);
@@ -1684,7 +1651,7 @@ public class Hive {
                 for (Partition p : partitionsMap.values()) {
                     partNames.add(p.getName());
                 }
-                metaStoreClient.addDynamicPartitions(txnId, tbl.getDbName(), tbl.getTableName(), partNames);
+                getMSC(getClusterFromDbName(tbl.getDbName())).addDynamicPartitions(txnId, getDBFromDbName(tbl.getDbName()), tbl.getTableName(), partNames);
             }
             return partitionsMap;
         } catch (IOException e) {
@@ -1770,10 +1737,13 @@ public class Hive {
      */
     public Partition createPartition(Table tbl, Map<String, String> partSpec) throws HiveException {
         try {
-            String cluster = getClusterFromDbName(tbl.getDbName());
-            tbl.setDbName(getDBFromDbName(tbl.getDbName()));
-            return new Partition(tbl, getMSC(cluster).add_partition(
-                    Partition.createMetaPartitionObject(tbl, partSpec, null)));
+            String originDB = tbl.getDbName();
+            String cluster = getClusterFromDbName(originDB);
+            tbl.setDbName(getDBFromDbName(originDB));
+            org.apache.hadoop.hive.metastore.api.Partition partition = getMSC(cluster).add_partition(
+                    Partition.createMetaPartitionObject(tbl, partSpec, null));
+           tbl.setDbName(originDB);
+            return new Partition(tbl, partition);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -1789,27 +1759,27 @@ public class Hive {
             in.add(convertAddSpecToMetaPartition(tbl, addPartitionDesc.getPartition(i)));
         }
         List<Partition> out = new ArrayList<Partition>();
+        for(org.apache.hadoop.hive.metastore.api.Partition part:in){
+            in.remove(part);
+            part.setDbName(getDBFromDbName(addPartitionDesc.getDbName()));
+            in.add(part);
+        }
         try {
+            String cluster = getDBFromDbName(addPartitionDesc.getDbName());
             if (!addPartitionDesc.getReplaceMode()) {
                 // TODO: normally, the result is not necessary; might make sense to pass false
-                String cluster = getDBFromDbName(in.get(0).getDbName());
-                for(org.apache.hadoop.hive.metastore.api.Partition part:in){
-                    in.remove(part);
-                    part.setDbName(getDBFromDbName(part.getDbName()));
-                    in.add(part);
-                }
                 for (org.apache.hadoop.hive.metastore.api.Partition outPart
-                        : getMSC(cluster).add_partitions(in, addPartitionDesc.isIfNotExists(), true)) {
+                        : getMSC(getClusterFromDbName(addPartitionDesc.getDbName())).add_partitions(in, addPartitionDesc.isIfNotExists(), true)) {
                     out.add(new Partition(tbl, outPart));
                 }
             } else {
-                getMSC().alter_partitions(addPartitionDesc.getDbName(), addPartitionDesc.getTableName(), in);
+                getMSC(getClusterFromDbName(addPartitionDesc.getDbName())).alter_partitions(getDBFromDbName(addPartitionDesc.getDbName()), addPartitionDesc.getTableName(), in);
                 List<String> part_names = new ArrayList<String>();
                 for (org.apache.hadoop.hive.metastore.api.Partition p : in) {
                     part_names.add(Warehouse.makePartName(tbl.getPartitionKeys(), p.getValues()));
                 }
                 for (org.apache.hadoop.hive.metastore.api.Partition outPart :
-                        getMSC().getPartitionsByNames(addPartitionDesc.getDbName(), addPartitionDesc.getTableName(), part_names)) {
+                        getMSC(getClusterFromDbName(addPartitionDesc.getDbName())).getPartitionsByNames(getDBFromDbName(addPartitionDesc.getDbName()), addPartitionDesc.getTableName(), part_names)) {
                     out.add(new Partition(tbl, outPart));
                 }
             }
@@ -1921,8 +1891,9 @@ public class Hive {
         }
         org.apache.hadoop.hive.metastore.api.Partition tpart = null;
         try {
-            tpart = getMSC().getPartitionWithAuthInfo(tbl.getDbName(),
+            tpart = getMSC(getClusterFromDbName(tbl.getDbName())).getPartitionWithAuthInfo(getDBFromDbName(tbl.getDbName()),
                     tbl.getTableName(), pvals, getUserName(), getGroupNames());
+            tpart.setDbName(tbl.getDbName());
         } catch (NoSuchObjectException nsoe) {
             // this means no partition exists for the given partition
             // key value pairs - thrift cannot handle null return values, hence
@@ -1938,11 +1909,13 @@ public class Hive {
                     LOG.debug("creating partition for table " + tbl.getTableName()
                             + " with partition spec : " + partSpec);
                     try {
-                        tpart = getMSC().appendPartition(tbl.getDbName(), tbl.getTableName(), pvals);
+                        tpart = getMSC(getClusterFromDbName(tbl.getDbName())).appendPartition(getDBFromDbName(tbl.getDbName()), tbl.getTableName(), pvals);
+                        tpart.setDbName(tbl.getDbName());
                     } catch (AlreadyExistsException aee) {
                         LOG.debug("Caught already exists exception, trying to alter partition instead");
-                        tpart = getMSC().getPartitionWithAuthInfo(tbl.getDbName(),
+                        tpart = getMSC(getClusterFromDbName(tbl.getDbName())).getPartitionWithAuthInfo(getDBFromDbName(tbl.getDbName()),
                                 tbl.getTableName(), pvals, getUserName(), getGroupNames());
+                        tpart.setDbName(tbl.getDbName());
                         alterPartitionSpec(tbl, partSpec, tpart, inheritTableSpecs, partPath);
                     } catch (Exception e) {
                         if (CheckJDOException.isJDODataStoreException(e)) {
@@ -1950,8 +1923,9 @@ public class Hive {
                             // have to be used here. This helps avoid adding jdo dependency for
                             // hcatalog client uses
                             LOG.debug("Caught JDO exception, trying to alter partition instead");
-                            tpart = getMSC().getPartitionWithAuthInfo(tbl.getDbName(),
+                            tpart = getMSC(getClusterFromDbName(tbl.getDbName())).getPartitionWithAuthInfo(getDBFromDbName(tbl.getDbName()),
                                     tbl.getTableName(), pvals, getUserName(), getGroupNames());
+                            tpart.setDbName(tbl.getDbName());
                             if (tpart == null) {
                                 // This means the exception was caused by something other than a race condition
                                 // in creating the partition, since the partition still doesn't exist.
@@ -2025,7 +1999,7 @@ public class Hive {
                 insertData.setFilesAdded(new ArrayList<String>());
             }
             FireEventRequest rqst = new FireEventRequest(true, data);
-            rqst.setDbName(tbl.getDbName());
+            rqst.setDbName(getDBFromDbName(tbl.getDbName()));
             rqst.setTableName(tbl.getTableName());
             if (partitionSpec != null && partitionSpec.size() > 0) {
                 List<String> partVals = new ArrayList<String>(partitionSpec.size());
@@ -2035,7 +2009,7 @@ public class Hive {
                 rqst.setPartitionVals(partVals);
             }
             try {
-                getMSC().fireListenerEvent(rqst);
+                getMSC(getClusterFromDbName(tbl.getDbName())).fireListenerEvent(rqst);
             } catch (TException e) {
                 throw new HiveException(e);
             }
@@ -2057,7 +2031,7 @@ public class Hive {
     public boolean dropPartition(String dbName, String tableName, List<String> partVals, PartitionDropOptions options)
             throws HiveException {
         try {
-            return getMSC().dropPartition(dbName, tableName, partVals, options);
+            return getMSC(getClusterFromDbName(dbName)).dropPartition(getDBFromDbName(dbName), tableName, partVals, options);
         } catch (NoSuchObjectException e) {
             throw new HiveException("Partition or table doesn't exist.", e);
         } catch (Exception e) {
@@ -2098,8 +2072,8 @@ public class Hive {
                 partExprs.add(new ObjectPair<Integer, byte[]>(partSpec.getPrefixLength(),
                         Utilities.serializeExpressionToKryo(partSpec.getPartSpec())));
             }
-            List<org.apache.hadoop.hive.metastore.api.Partition> tParts = getMSC().dropPartitions(
-                    dbName, tblName, partExprs, dropOptions);
+            List<org.apache.hadoop.hive.metastore.api.Partition> tParts = getMSC(getClusterFromDbName(dbName)).dropPartitions(
+                    getDBFromDbName(dbName), tblName, partExprs, dropOptions);
             return convertFromMetastore(tbl, tParts, null);
         } catch (NoSuchObjectException e) {
             throw new HiveException("Partition or table doesn't exist.", e);
@@ -2117,7 +2091,7 @@ public class Hive {
             throws HiveException {
         List<String> names = null;
         try {
-            names = getMSC().listPartitionNames(dbName, tblName, max);
+            names = getMSC(getClusterFromDbName(dbName)).listPartitionNames(getDBFromDbName(dbName), tblName, max);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -2133,7 +2107,7 @@ public class Hive {
         List<String> pvals = MetaStoreUtils.getPvals(t.getPartCols(), partSpec);
 
         try {
-            names = getMSC().listPartitionNames(dbName, tblName, pvals, max);
+            names = getMSC(getClusterFromDbName(dbName)).listPartitionNames(getDBFromDbName(dbName), tblName, pvals, max);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -2153,7 +2127,7 @@ public class Hive {
         if (tbl.isPartitioned()) {
             List<org.apache.hadoop.hive.metastore.api.Partition> tParts;
             try {
-                tParts = getMSC().listPartitionsWithAuthInfo(tbl.getDbName(), tbl.getTableName(),
+                tParts = getMSC(getClusterFromDbName(tbl.getDbName())).listPartitionsWithAuthInfo(getDBFromDbName(tbl.getDbName()), tbl.getTableName(),
                         (short) -1, getUserName(), getGroupNames());
             } catch (Exception e) {
                 LOG.error(StringUtils.stringifyException(e));
@@ -2161,6 +2135,7 @@ public class Hive {
             }
             List<Partition> parts = new ArrayList<Partition>(tParts.size());
             for (org.apache.hadoop.hive.metastore.api.Partition tpart : tParts) {
+                tpart.setDbName(tbl.getDbName());
                 parts.add(new Partition(tbl, tpart));
             }
             return parts;
@@ -2184,13 +2159,14 @@ public class Hive {
 
         List<org.apache.hadoop.hive.metastore.api.Partition> tParts;
         try {
-            tParts = getMSC().listPartitions(tbl.getDbName(), tbl.getTableName(), (short) -1);
+            tParts = getMSC(getClusterFromDbName(tbl.getDbName())).listPartitions(getDBFromDbName(tbl.getDbName()), tbl.getTableName(), (short) -1);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
         }
         Set<Partition> parts = new LinkedHashSet<Partition>(tParts.size());
         for (org.apache.hadoop.hive.metastore.api.Partition tpart : tParts) {
+            tpart.setDbName(tbl.getDbName());
             parts.add(new Partition(tbl, tpart));
         }
         return parts;
@@ -2218,7 +2194,7 @@ public class Hive {
 
         List<org.apache.hadoop.hive.metastore.api.Partition> partitions = null;
         try {
-            partitions = getMSC().listPartitionsWithAuthInfo(tbl.getDbName(), tbl.getTableName(),
+            partitions = getMSC(getClusterFromDbName(tbl.getDbName())).listPartitionsWithAuthInfo(getDBFromDbName(tbl.getDbName()), tbl.getTableName(),
                     partialPvals, limit, getUserName(), getGroupNames());
         } catch (Exception e) {
             throw new HiveException(e);
@@ -2226,6 +2202,7 @@ public class Hive {
 
         List<Partition> qlPartitions = new ArrayList<Partition>();
         for (org.apache.hadoop.hive.metastore.api.Partition p : partitions) {
+            p.setDbName(tbl.getDbName());
             qlPartitions.add(new Partition(tbl, p));
         }
 
@@ -2300,10 +2277,11 @@ public class Hive {
         try {
             for (int i = 0; i < nBatches; ++i) {
                 List<org.apache.hadoop.hive.metastore.api.Partition> tParts =
-                        getMSC().getPartitionsByNames(tbl.getDbName(), tbl.getTableName(),
+                        getMSC(getClusterFromDbName(tbl.getDbName())).getPartitionsByNames(getDBFromDbName(tbl.getDbName()), tbl.getTableName(),
                                 partNames.subList(i * batchSize, (i + 1) * batchSize));
                 if (tParts != null) {
                     for (org.apache.hadoop.hive.metastore.api.Partition tpart : tParts) {
+                        tpart.setDbName(tbl.getDbName());
                         partitions.add(new Partition(tbl, tpart));
                     }
                 }
@@ -2311,10 +2289,11 @@ public class Hive {
 
             if (nParts > nBatches * batchSize) {
                 List<org.apache.hadoop.hive.metastore.api.Partition> tParts =
-                        getMSC().getPartitionsByNames(tbl.getDbName(), tbl.getTableName(),
+                        getMSC(getClusterFromDbName(tbl.getDbName())).getPartitionsByNames(getDBFromDbName(tbl.getDbName()), tbl.getTableName(),
                                 partNames.subList(nBatches * batchSize, nParts));
                 if (tParts != null) {
                     for (org.apache.hadoop.hive.metastore.api.Partition tpart : tParts) {
+                        tpart.setDbName(tbl.getDbName());
                         partitions.add(new Partition(tbl, tpart));
                     }
                 }
@@ -2342,8 +2321,8 @@ public class Hive {
             throw new HiveException(ErrorMsg.TABLE_NOT_PARTITIONED, tbl.getTableName());
         }
 
-        List<org.apache.hadoop.hive.metastore.api.Partition> tParts = getMSC().listPartitionsByFilter(
-                tbl.getDbName(), tbl.getTableName(), filter, (short) -1);
+        List<org.apache.hadoop.hive.metastore.api.Partition> tParts = getMSC(getClusterFromDbName(tbl.getDbName())).listPartitionsByFilter(
+               getDBFromDbName(tbl.getDbName()), tbl.getTableName(), filter, (short) -1);
         return convertFromMetastore(tbl, tParts, null);
     }
 
@@ -2357,6 +2336,7 @@ public class Hive {
             dest = new ArrayList<Partition>(src.size());
         }
         for (org.apache.hadoop.hive.metastore.api.Partition tPart : src) {
+            tPart.setDbName(tbl.getDbName());
             dest.add(new Partition(tbl, tPart));
         }
         return dest;
@@ -2377,15 +2357,16 @@ public class Hive {
         String defaultPartitionName = HiveConf.getVar(conf, ConfVars.DEFAULTPARTITIONNAME);
         List<org.apache.hadoop.hive.metastore.api.Partition> msParts =
                 new ArrayList<org.apache.hadoop.hive.metastore.api.Partition>();
-        boolean hasUnknownParts = getMSC().listPartitionsByExpr(tbl.getDbName(),
+        boolean hasUnknownParts = getMSC(getClusterFromDbName(tbl.getDbName())).listPartitionsByExpr(getDBFromDbName(tbl.getDbName()),
                 tbl.getTableName(), exprBytes, defaultPartitionName, (short) -1, msParts);
         convertFromMetastore(tbl, msParts, result);
         return hasUnknownParts;
     }
 
-    public void validatePartitionNameCharacters(List<String> partVals) throws HiveException {
+
+    public void validatePartitionNameCharacters(String cluster, List<String> partVals) throws HiveException {
         try {
-            getMSC().validatePartitionNameCharacters(partVals);
+            getMSC(cluster).validatePartitionNameCharacters(partVals);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -2395,7 +2376,7 @@ public class Hive {
     public void createRole(String roleName, String ownerName)
             throws HiveException {
         try {
-            getMSC().create_role(new Role(roleName, -1, ownerName));
+            getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).create_role(new Role(roleName, -1, ownerName));
         } catch (Exception e) {
             throw new HiveException(e);
         }
@@ -2403,7 +2384,7 @@ public class Hive {
 
     public void dropRole(String roleName) throws HiveException {
         try {
-            getMSC().drop_role(roleName);
+            getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).drop_role(roleName);
         } catch (Exception e) {
             throw new HiveException(e);
         }
@@ -2417,7 +2398,7 @@ public class Hive {
      */
     public List<String> getAllRoleNames() throws HiveException {
         try {
-            return getMSC().listRoleNames();
+            return getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).listRoleNames();
         } catch (Exception e) {
             throw new HiveException(e);
         }
@@ -2426,7 +2407,7 @@ public class Hive {
     public List<RolePrincipalGrant> getRoleGrantInfoForPrincipal(String principalName, PrincipalType principalType) throws HiveException {
         try {
             GetRoleGrantsForPrincipalRequest req = new GetRoleGrantsForPrincipalRequest(principalName, principalType);
-            GetRoleGrantsForPrincipalResponse resp = getMSC().get_role_grants_for_principal(req);
+            GetRoleGrantsForPrincipalResponse resp = getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).get_role_grants_for_principal(req);
             return resp.getPrincipalGrants();
         } catch (Exception e) {
             throw new HiveException(e);
@@ -2438,7 +2419,7 @@ public class Hive {
                              PrincipalType principalType, String grantor, PrincipalType grantorType,
                              boolean grantOption) throws HiveException {
         try {
-            return getMSC().grant_role(roleName, userName, principalType, grantor,
+            return getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).grant_role(roleName, userName, principalType, grantor,
                     grantorType, grantOption);
         } catch (Exception e) {
             throw new HiveException(e);
@@ -2448,7 +2429,7 @@ public class Hive {
     public boolean revokeRole(String roleName, String userName,
                               PrincipalType principalType, boolean grantOption) throws HiveException {
         try {
-            return getMSC().revoke_role(roleName, userName, principalType, grantOption);
+            return getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).revoke_role(roleName, userName, principalType, grantOption);
         } catch (Exception e) {
             throw new HiveException(e);
         }
@@ -2457,7 +2438,7 @@ public class Hive {
     public List<Role> listRoles(String userName, PrincipalType principalType)
             throws HiveException {
         try {
-            return getMSC().list_roles(userName, principalType);
+            return getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).list_roles(userName, principalType);
         } catch (Exception e) {
             throw new HiveException(e);
         }
@@ -2486,9 +2467,9 @@ public class Hive {
                                                    String column_name, String user_name, List<String> group_names)
             throws HiveException {
         try {
-            HiveObjectRef hiveObj = new HiveObjectRef(objectType, db_name,
+            HiveObjectRef hiveObj = new HiveObjectRef(objectType, getDBFromDbName(db_name),
                     table_name, part_values, column_name);
-            return getMSC().get_privilege_set(hiveObj, user_name, group_names);
+            return getMSC(getClusterFromDbName(db_name)).get_privilege_set(hiveObj, user_name, group_names);
         } catch (Exception e) {
             throw new HiveException(e);
         }
@@ -2511,9 +2492,9 @@ public class Hive {
             PrincipalType principalType, String dbName, String tableName,
             List<String> partValues, String columnName) throws HiveException {
         try {
-            HiveObjectRef hiveObj = new HiveObjectRef(objectType, dbName, tableName,
+            HiveObjectRef hiveObj = new HiveObjectRef(objectType, getDBFromDbName(dbName), tableName,
                     partValues, columnName);
-            return getMSC().list_privileges(principalName, principalType, hiveObj);
+            return getMSC(getClusterFromDbName(dbName)).list_privileges(principalName, principalType, hiveObj);
         } catch (Exception e) {
             throw new HiveException(e);
         }
@@ -3050,7 +3031,7 @@ public class Hive {
                                         String sourceDb, String sourceTable, String destDb,
                                         String destinationTableName) throws HiveException {
         try {
-            getMSC().exchange_partition(partitionSpecs, sourceDb, sourceTable, destDb,
+            getMSC(getClusterFromDbName(sourceDb)).exchange_partition(partitionSpecs, getDBFromDbName(sourceDb), sourceTable, getDBFromDbName(destDb),
                     destinationTableName);
         } catch (Exception ex) {
             LOG.error(StringUtils.stringifyException(ex));
@@ -3147,7 +3128,7 @@ public class Hive {
     public List<Index> getIndexes(String dbName, String tblName, short max) throws HiveException {
         List<Index> indexes = null;
         try {
-            indexes = getMSC().listIndexes(dbName, tblName, max);
+            indexes = getMSC(getClusterFromDbName(dbName)).listIndexes(getDBFromDbName(dbName), tblName, max);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3157,7 +3138,11 @@ public class Hive {
 
     public boolean updateTableColumnStatistics(ColumnStatistics statsObj) throws HiveException {
         try {
-            return getMSC().updateTableColumnStatistics(statsObj);
+            ColumnStatisticsDesc origin = statsObj.getStatsDesc();
+            String cluster = getClusterFromDbName(origin.getDbName());
+            origin.setDbName(getDBFromDbName(origin.getDbName()));
+            statsObj.setStatsDesc(origin);
+            return getMSC(cluster).updateTableColumnStatistics(statsObj);
         } catch (Exception e) {
             LOG.debug(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3166,16 +3151,31 @@ public class Hive {
 
     public boolean updatePartitionColumnStatistics(ColumnStatistics statsObj) throws HiveException {
         try {
-            return getMSC().updatePartitionColumnStatistics(statsObj);
+            ColumnStatisticsDesc origin = statsObj.getStatsDesc();
+            String cluster = getClusterFromDbName(origin.getDbName());
+            origin.setDbName(getDBFromDbName(origin.getDbName()));
+            statsObj.setStatsDesc(origin);
+            return getMSC(cluster).updatePartitionColumnStatistics(statsObj);
         } catch (Exception e) {
             LOG.debug(StringUtils.stringifyException(e));
             throw new HiveException(e);
         }
     }
 
+    //TODO
     public boolean setPartitionColumnStatistics(SetPartitionsStatsRequest request) throws HiveException {
         try {
-            return getMSC().setPartitionColumnStatistics(request);
+            boolean result = true;
+            List<ColumnStatistics> colStats = request.getColStats();
+            for(ColumnStatistics colStat : colStats){
+                ColumnStatisticsDesc origin = colStat.getStatsDesc();
+                String cluster = getClusterFromDbName(origin.getDbName());
+                origin.setDbName(getDBFromDbName(origin.getDbName()));
+                colStat.setStatsDesc(origin);
+                request.setColStats(new LinkedList<ColumnStatistics>(colStats));
+                result = result && (getMSC(cluster).setPartitionColumnStatistics(request)) ;
+            }
+            return result;
         } catch (Exception e) {
             LOG.debug(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3185,7 +3185,7 @@ public class Hive {
     public List<ColumnStatisticsObj> getTableColumnStatistics(
             String dbName, String tableName, List<String> colNames) throws HiveException {
         try {
-            return getMSC().getTableColumnStatistics(dbName, tableName, colNames);
+            return getMSC(getClusterFromDbName(dbName)).getTableColumnStatistics(getDBFromDbName(dbName), tableName, colNames);
         } catch (Exception e) {
             LOG.debug(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3195,7 +3195,7 @@ public class Hive {
     public Map<String, List<ColumnStatisticsObj>> getPartitionColumnStatistics(String dbName,
                                                                                String tableName, List<String> partNames, List<String> colNames) throws HiveException {
         try {
-            return getMSC().getPartitionColumnStatistics(dbName, tableName, partNames, colNames);
+            return getMSC(getClusterFromDbName(dbName)).getPartitionColumnStatistics(getDBFromDbName(dbName), tableName, partNames, colNames);
         } catch (Exception e) {
             LOG.debug(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3205,7 +3205,7 @@ public class Hive {
     public AggrStats getAggrColStatsFor(String dbName, String tblName,
                                         List<String> colNames, List<String> partName) {
         try {
-            return getMSC().getAggrColStatsFor(dbName, tblName, colNames, partName);
+            return getMSC(getClusterFromDbName(dbName)).getAggrColStatsFor(getDBFromDbName(dbName), tblName, colNames, partName);
         } catch (Exception e) {
             LOG.debug(StringUtils.stringifyException(e));
             return null;
@@ -3215,7 +3215,7 @@ public class Hive {
     public boolean deleteTableColumnStatistics(String dbName, String tableName, String colName)
             throws HiveException {
         try {
-            return getMSC().deleteTableColumnStatistics(dbName, tableName, colName);
+            return getMSC(getClusterFromDbName(dbName)).deleteTableColumnStatistics(getDBFromDbName(dbName), tableName, colName);
         } catch (Exception e) {
             LOG.debug(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3225,7 +3225,7 @@ public class Hive {
     public boolean deletePartitionColumnStatistics(String dbName, String tableName, String partName,
                                                    String colName) throws HiveException {
         try {
-            return getMSC().deletePartitionColumnStatistics(dbName, tableName, partName, colName);
+            return getMSC(getClusterFromDbName(dbName)).deletePartitionColumnStatistics(getDBFromDbName(dbName), tableName, partName, colName);
         } catch (Exception e) {
             LOG.debug(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3234,13 +3234,13 @@ public class Hive {
 
     public Table newTable(String tableName) throws HiveException {
         String[] names = Utilities.getDbTableName(tableName);
-        return new Table(names[0], names[1]);
+        return new Table(getDBFromDbName(names[0]), names[1]);
     }
 
     public String getDelegationToken(String owner, String renewer)
             throws HiveException {
         try {
-            return getMSC().getDelegationToken(owner, renewer);
+            return getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).getDelegationToken(owner, renewer);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3250,7 +3250,7 @@ public class Hive {
     public void cancelDelegationToken(String tokenStrForm)
             throws HiveException {
         try {
-            getMSC().cancelDelegationToken(tokenStrForm);
+            getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).cancelDelegationToken(tokenStrForm);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3273,7 +3273,7 @@ public class Hive {
             if ("major".equals(compactType)) cr = CompactionType.MAJOR;
             else if ("minor".equals(compactType)) cr = CompactionType.MINOR;
             else throw new RuntimeException("Unknown compaction type " + compactType);
-            getMSC().compact(dbname, tableName, partName, cr);
+            getMSC(getClusterFromDbName(dbname)).compact(getDBFromDbName(dbname), tableName, partName, cr);
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3282,7 +3282,7 @@ public class Hive {
 
     public ShowCompactResponse showCompactions() throws HiveException {
         try {
-            return getMSC().showCompactions();
+            return getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).showCompactions();
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3291,7 +3291,7 @@ public class Hive {
 
     public GetOpenTxnsInfoResponse showTransactions() throws HiveException {
         try {
-            return getMSC().showTxns();
+            return getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).showTxns();
         } catch (Exception e) {
             LOG.error(StringUtils.stringifyException(e));
             throw new HiveException(e);
@@ -3300,7 +3300,7 @@ public class Hive {
 
     public void createFunction(Function func) throws HiveException {
         try {
-            getMSC().createFunction(func);
+            getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).createFunction(func);
         } catch (TException te) {
             throw new HiveException(te);
         }
@@ -3309,7 +3309,7 @@ public class Hive {
     public void alterFunction(String dbName, String funcName, Function newFunction)
             throws HiveException {
         try {
-            getMSC().alterFunction(dbName, funcName, newFunction);
+            getMSC(getClusterFromDbName(dbName)).alterFunction(getDBFromDbName(dbName), funcName, newFunction);
         } catch (TException te) {
             throw new HiveException(te);
         }
@@ -3318,7 +3318,7 @@ public class Hive {
     public void dropFunction(String dbName, String funcName)
             throws HiveException {
         try {
-            getMSC().dropFunction(dbName, funcName);
+            getMSC(getClusterFromDbName(dbName)).dropFunction(getDBFromDbName(dbName), funcName);
         } catch (TException te) {
             throw new HiveException(te);
         }
@@ -3326,7 +3326,7 @@ public class Hive {
 
     public Function getFunction(String dbName, String funcName) throws HiveException {
         try {
-            return getMSC().getFunction(dbName, funcName);
+            return getMSC(getClusterFromDbName(dbName)).getFunction(getDBFromDbName(dbName), funcName);
         } catch (TException te) {
             throw new HiveException(te);
         }
@@ -3334,7 +3334,7 @@ public class Hive {
 
     public List<String> getFunctions(String dbName, String pattern) throws HiveException {
         try {
-            return getMSC().getFunctions(dbName, pattern);
+            return getMSC(getClusterFromDbName(dbName)).getFunctions(getDBFromDbName(dbName), pattern);
         } catch (TException te) {
             throw new HiveException(te);
         }
@@ -3342,7 +3342,7 @@ public class Hive {
 
     public void setMetaConf(String propName, String propValue) throws HiveException {
         try {
-            getMSC().setMetaConf(propName, propValue);
+            getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).setMetaConf(propName, propValue);
         } catch (TException te) {
             throw new HiveException(te);
         }
@@ -3350,7 +3350,7 @@ public class Hive {
 
     public String getMetaConf(String propName) throws HiveException {
         try {
-            return getMSC().getMetaConf(propName);
+            return getMSC(getClusterFromDbName(SessionState.get().getCurrentDatabase())).getMetaConf(propName);
         } catch (TException te) {
             throw new HiveException(te);
         }
